@@ -76,13 +76,13 @@ metadata:
     categories: Developer Tools
     certified: "false"
     containerImage: quay.io/eclipse/che-operator:nightly
-    createdAt: "2021-04-22T07:34:35Z"
+    createdAt: "2021-04-26T10:20:41Z"
     description: A Kube-native development solution that delivers portable and collaborative
       developer workspaces.
     operatorframework.io/suggested-namespace: eclipse-che
     repository: https://github.com/eclipse-che/che-operator
     support: Eclipse Foundation
-  name: eclipse-che-preview-kubernetes.v7.30.0-170.nightly
+  name: eclipse-che-preview-kubernetes.v7.30.0-172.nightly
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -882,6 +882,7 @@ spec:
                   app.kubernetes.io/instance: che
                   app.kubernetes.io/managed-by: olm
                   app.kubernetes.io/name: che
+                  control-plane: controller-manager
               spec:
                 containers:
                   - command:
@@ -979,6 +980,39 @@ spec:
                       capabilities:
                         drop:
                           - ALL
+                  - args:
+                      - --enable-leader-election
+                    command:
+                      - /usr/local/bin/devworkspace-che-operator
+                    env:
+                      - name: WATCH_NAMESPACE
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: metadata.annotations['olm.targetNamespaces']
+                      - name: POD_NAME
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: metadata.name
+                      - name: OPERATOR_NAME
+                        value: devworkspace-operator
+                      - name: CONTROLLER_SERVICE_ACCOUNT_NAME
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: spec.serviceAccountName
+                      - name: RELATED_IMAGE_gateway
+                        value: docker.io/traefik:v2.2.8
+                      - name: RELATED_IMAGE_gateway_configurer
+                        value: quay.io/che-incubator/configbump:0.1.4
+                    image: quay.io/che-incubator/devworkspace-che-operator:ci
+                    imagePullPolicy: Always
+                    name: devworkspace-che-operator
+                    resources:
+                      limits:
+                        cpu: 100m
+                        memory: 100Mi
+                      requests:
+                        cpu: 100m
+                        memory: 20Mi
                 restartPolicy: Always
                 serviceAccountName: che-operator
                 terminationGracePeriodSeconds: 20
@@ -1082,6 +1116,32 @@ spec:
               verbs:
                 - get
                 - list
+            - apiGroups:
+                - ""
+              resources:
+                - configmaps
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - update
+                - patch
+                - delete
+            - apiGroups:
+                - ""
+              resources:
+                - configmaps/status
+              verbs:
+                - get
+                - update
+                - patch
+            - apiGroups:
+                - ""
+              resources:
+                - events
+              verbs:
+                - create
           serviceAccountName: che-operator
     strategy: deployment
   installModes:
@@ -1113,4 +1173,4 @@ spec:
   maturity: stable
   provider:
     name: Eclipse Foundation
-  version: 7.30.0-170.nightly
+  version: 7.30.0-172.nightly
