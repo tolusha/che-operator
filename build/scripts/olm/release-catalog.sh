@@ -22,7 +22,7 @@ init() {
   unset CATALOG_IMAGE
   unset BUNDLE_IMAGE
   unset IMAGE_TOOL
-  unset PLATFORM
+  unset ARCHS
 
   while [[ "$#" -gt 0 ]]; do
     case $1 in
@@ -84,7 +84,7 @@ build () {
         CHANNEL="${CHANNEL}" \
         BUNDLE_IMG="${BUNDLE_IMAGE}" \
         IMAGE_TOOL="${IMAGE_TOOL}" \
-        ARCHS="${ARCHS}"
+        ARCHS="${PLATFORM}"
 
     echo "[INFO] Add bundle to the catalog"
 
@@ -110,7 +110,7 @@ build () {
     CHANNEL="${CHANNEL}" \
     CATALOG_IMG="${CATALOG_IMAGE}" \
     IMAGE_TOOL="${IMAGE_TOOL}" \
-    ARCHS="${ARCHS}"
+    ARCHS="${PLATFORM}"
 
   make download-addlicense
   make license $(make catalog-path CHANNEL="${CHANNEL}")
