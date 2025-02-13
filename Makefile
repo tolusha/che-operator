@@ -495,7 +495,7 @@ bundle-push: ## Push a bundle image
 	[[ -z "$(BUNDLE_IMG)" ]] && { echo [ERROR] BUNDLE_IMG not defined; exit 1; }
 	$(IMAGE_TOOL) push $(BUNDLE_IMG)
 
-bundle-push: SHELL := /bin/bash
+bundle-build-and-push: SHELL := /bin/bash
 bundle-build-and-push: ## Build a bundle image
 	[[ -z "$(CHANNEL)" ]] && { echo [ERROR] CHANNEL not defined; exit 1; }
 	[[ -z "$(BUNDLE_IMG)" ]] && { echo [ERROR] BUNDLE_IMG not defined; exit 1; }
@@ -529,7 +529,7 @@ catalog-push: ## Push a catalog image
 	[[ -z "$(CATALOG_IMG)" ]] && { echo [ERROR] CATALOG_IMG not defined; exit 1; }
 	$(IMAGE_TOOL) push $(CATALOG_IMG)
 
-catalog-build: SHELL := /bin/bash
+catalog-build-and-push: SHELL := /bin/bash
 catalog-build-and-push: download-opm ## Build a catalog image
 	[[ -z "$(CHANNEL)" ]] && { echo [ERROR] CHANNEL not defined; exit 1; }
 	[[ -z "$(CATALOG_IMG)" ]] && { echo [ERROR] CATALOG_IMG not defined; exit 1; }
