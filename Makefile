@@ -491,7 +491,7 @@ bundle-build: download-opm ## Build a bundle image
 	if [[ -z "$(PLATFORMS)" ]]; then
 		$(IMAGE_TOOL) build -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
 	else
-		$(IMAGE_TOOL) buildx build --platform $(PLATFORMS) -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
+		$(IMAGE_TOOL) buildx build --platform $(PLATFORM) -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
 	fi
 
 bundle-push: SHELL := /bin/bash
@@ -517,7 +517,7 @@ catalog-build: download-opm ## Build a catalog image
 	[[ -z "$(CATALOG_IMG)" ]] && { echo [ERROR] CATALOG_IMG not defined; exit 1; }
 
 	$(OPM) validate olm-catalog/$(CHANNEL)
-	if [[ -z "$(PLATFORMS)" ]]; then
+	if [[ -z "$(PLATFORM)" ]]; then
 		$(IMAGE_TOOL) build -f olm-catalog/index.Dockerfile -t $(CATALOG_IMG) --build-arg CHANNEL=$(CHANNEL) .
 	else
 		$(IMAGE_TOOL) buildx build --platform $(PLATFORMS) -f olm-catalog/index.Dockerfile -t $(CATALOG_IMG) --build-arg CHANNEL=$(CHANNEL) .
