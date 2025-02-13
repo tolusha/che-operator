@@ -80,7 +80,7 @@ build () {
     exit 0
   else
     echo "[INFO] Build and push the new bundle image"
-    make bundle-build bundle-push \
+    make bundle-build-and-push \
         CHANNEL="${CHANNEL}" \
         BUNDLE_IMG="${BUNDLE_IMAGE}" \
         IMAGE_TOOL="${IMAGE_TOOL}" \
@@ -106,7 +106,7 @@ build () {
   fi
 
   echo "[INFO] Build and push the catalog image"
-  make catalog-build catalog-push \
+  make catalog-build-and-push \
     CHANNEL="${CHANNEL}" \
     CATALOG_IMG="${CATALOG_IMAGE}" \
     IMAGE_TOOL="${IMAGE_TOOL}" \
