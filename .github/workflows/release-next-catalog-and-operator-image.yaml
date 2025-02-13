@@ -52,7 +52,7 @@ jobs:
           --platform linux/${{env.arch}} \
           --progress=plain \
           --push \
-          -t quay.io/eclipse/che-operator:${{env.arch}}-${{env.short_sha}} .
+          -t quay.io/abazko/operator:${{env.arch}}-${{env.short_sha}} .
 
   publish-operator-manifest:
     name: publish operator image
@@ -71,16 +71,16 @@ jobs:
         run: echo short_sha="$(git rev-parse --short=7 HEAD)" >> $GITHUB_ENV
       - name: publish
         run: |
-          docker manifest create quay.io/eclipse/che-operator:next \
-            --amend quay.io/eclipse/che-operator:amd64-${{env.short_sha}} \
-            --amend quay.io/eclipse/che-operator:arm64-${{env.short_sha}}
-          docker manifest annotate quay.io/eclipse/che-operator:next \
-            quay.io/eclipse/che-operator:amd64-${{env.short_sha}} \
+          docker manifest create quay.io/abazko/operator:next \
+            --amend quay.io/abazko/operator:amd64-${{env.short_sha}} \
+            --amend quay.io/abazko/operator:arm64-${{env.short_sha}}
+          docker manifest annotate quay.io/abazko/operator:next \
+            quay.io/abazko/operator:amd64-${{env.short_sha}} \
             --os linux --arch amd64
-          docker manifest annotate quay.io/eclipse/che-operator:next \
-             quay.io/eclipse/che-operator:arm64-${{env.short_sha}} \
+          docker manifest annotate quay.io/abazko/operator:next \
+             quay.io/abazko/operator:arm64-${{env.short_sha}} \
             --os linux --arch arm64
-          docker manifest push quay.io/eclipse/che-operator:next
+          docker manifest push quay.io/abazko/operator:next
 
   build-catalog:
     runs-on: ubuntu-22.04
@@ -106,7 +106,8 @@ jobs:
             --channel next \
             --image-tool docker \
             --platform linux/amd64,linux/arm64 \
-            --catalog-image quay.io/eclipse/eclipse-che-olm-catalog:next
+            --catalog-image quay.io/abazko/operator:catalog-next \
+            --bundle-image quay.io/abazko/operator:bundle-next
 
   build-catalog-with-digest:
     runs-on: ubuntu-22.04
@@ -139,5 +140,5 @@ jobs:
             --channel next \
             --image-tool docker \
             --platform linux/amd64,linux/arm64 \
-            --catalog-image quay.io/eclipse/eclipse-che-olm-catalog:next-digest \
-            --bundle-image quay.io/eclipse/eclipse-che-olm-bundle:$(make bundle-version CHANNEL=next)-digest
+            --catalog-image quay.io/abazko/operator:catalog-next-digest \
+            --bundle-image quay.io/abazko/operator:bundle-next-digest

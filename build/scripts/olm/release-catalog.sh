@@ -49,6 +49,7 @@ init() {
   echo "[INFO] Bundle version: ${BUNDLE_VERSION}"
   echo "[INFO] Bundle image  : ${BUNDLE_IMAGE}"
   echo "[INFO] Catalog image : ${CATALOG_IMAGE}"
+  echo "[INFO] PLATFORM      : ${PLATFORM}"
 }
 
 usage () {
