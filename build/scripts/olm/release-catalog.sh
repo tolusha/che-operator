@@ -84,7 +84,7 @@ build () {
         CHANNEL="${CHANNEL}" \
         BUNDLE_IMG="${BUNDLE_IMAGE}" \
         IMAGE_TOOL="${IMAGE_TOOL}" \
-        PLATFORM="${PLATFORM}"
+        ARCHS="${ARCHS}"
 
     echo "[INFO] Add bundle to the catalog"
 
@@ -110,7 +110,7 @@ build () {
     CHANNEL="${CHANNEL}" \
     CATALOG_IMG="${CATALOG_IMAGE}" \
     IMAGE_TOOL="${IMAGE_TOOL}" \
-    PLATFORM="${PLATFORM}"
+    ARCHS="${ARCHS}"
 
   make download-addlicense
   make license $(make catalog-path CHANNEL="${CHANNEL}")
