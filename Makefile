@@ -492,7 +492,7 @@ bundle-build: download-opm ## Build a bundle image
 	if [[ -z "$(ARCHS)" ]]; then
 		$(IMAGE_TOOL) build -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
 	else
-		$(IMAGE_TOOL) buildx build --platform $(ARCHS) -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
+		$(IMAGE_TOOL) buildx build --load --platform $(ARCHS) -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
 	fi
 	set +x
 
@@ -522,7 +522,7 @@ catalog-build: download-opm ## Build a catalog image
 	if [[ -z "$(ARCHS)" ]]; then
 		$(IMAGE_TOOL) build -f olm-catalog/index.Dockerfile -t $(CATALOG_IMG) --build-arg CHANNEL=$(CHANNEL) .
 	else
-		$(IMAGE_TOOL) buildx build --platform $(ARCHS) -f olm-catalog/index.Dockerfile -t $(CATALOG_IMG) --build-arg CHANNEL=$(CHANNEL) .
+		$(IMAGE_TOOL) buildx build --load --platform $(ARCHS) -f olm-catalog/index.Dockerfile -t $(CATALOG_IMG) --build-arg CHANNEL=$(CHANNEL) .
 	fi
 
 catalog-push: SHELL := /bin/bash
