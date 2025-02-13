@@ -488,13 +488,11 @@ bundle-build: download-opm ## Build a bundle image
 	[[ -z "$(BUNDLE_IMG)" ]] && { echo [ERROR] BUNDLE_IMG not defined; exit 1; }
 
 	BUNDLE_PATH=$$($(MAKE) bundle-path)
-	set -x
-	if [[ -z "$(PLATFORMS)" ]]; then
+	if [[ -z "$(PLATFORM)" ]]; then
 		$(IMAGE_TOOL) build -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
 	else
 		$(IMAGE_TOOL) buildx build --platform $(PLATFORM) -f $${BUNDLE_PATH}/bundle.Dockerfile -t $(BUNDLE_IMG) $${BUNDLE_PATH}
 	fi
-	set +x
 
 bundle-push: SHELL := /bin/bash
 bundle-push: ## Push a bundle image
