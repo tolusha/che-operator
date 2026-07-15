@@ -63,9 +63,7 @@ func TestSyncPermissions(t *testing.T) {
 			assert.Nil(t, err)
 
 			names := []string{
-				fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace),
 				fmt.Sprintf(cheSASpecificPermissionsTemplateName, ctx.CheCluster.Namespace),
-				fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace),
 			}
 
 			for _, name := range names {
@@ -73,6 +71,16 @@ func TestSyncPermissions(t *testing.T) {
 				assert.True(t, test.IsObjectExists(ctx.ClusterAPI.Client, types.NamespacedName{Name: name}, &rbac.ClusterRoleBinding{}))
 			}
 			assert.True(t, test.IsObjectExists(ctx.ClusterAPI.Client, types.NamespacedName{Name: "test-role"}, &rbac.ClusterRoleBinding{}))
+
+			// Assert that the removed user-facing ClusterRoles are NOT created.
+			userFacingNames := []string{
+				fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace),
+				fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace),
+			}
+			for _, name := range userFacingNames {
+				assert.False(t, test.IsObjectExists(ctx.ClusterAPI.Client, types.NamespacedName{Name: name}, &rbac.ClusterRole{}))
+				assert.False(t, test.IsObjectExists(ctx.ClusterAPI.Client, types.NamespacedName{Name: name}, &rbac.ClusterRoleBinding{}))
+			}
 
 			done = reconciler.deletePermissions(ctx)
 			assert.True(t, done)
