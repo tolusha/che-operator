@@ -15,6 +15,7 @@ package usernamespace
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -23,6 +24,7 @@ import (
 	containerbuild "github.com/eclipse-che/che-operator/pkg/deploy/container-capabilities"
 	"k8s.io/utils/ptr"
 
+	"github.com/eclipse-che/che-operator/pkg/common/chetypes"
 	"github.com/eclipse-che/che-operator/pkg/common/test"
 
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -458,7 +460,7 @@ func TestWatchRulesForConfigMapsInSameNamespace(t *testing.T) {
 
 	ctx := context.TODO()
 
-	h := r.watchRulesForSecrets(ctx)
+	h := r.watchRulesForConfigMaps(ctx)
 	rlq := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 	// Let's throw event to controller about new config map creation.
 	h.Create(context.TODO(), event.CreateEvent{Object: cm}, rlq)
@@ -622,4 +624,251 @@ func TestWatchRulesForConfigMapsInOtherNamespaces(t *testing.T) {
 	assert.Contains(t, reconciles, reconcile.Request{NamespacedName: types.NamespacedName{Name: "ns1"}})
 	assert.Contains(t, reconciles, reconcile.Request{NamespacedName: types.NamespacedName{Name: "ns2"}})
 	assert.Contains(t, reconciles, reconcile.Request{NamespacedName: types.NamespacedName{Name: "eclipse-che"}})
+}
+
+// setupReconcileUserClusterRolesTest creates a CheUserNamespaceReconciler with a
+// fake client that already contains the two ClusterRoles that
+// UserClusterRolesReconciler would normally create, plus any extra objects
+// passed in. It returns the reconciler and the underlying fake client.
+func setupReconcileUserClusterRolesTest(cheCluster *chev2.CheCluster, extraObjs ...client.Object) (*CheUserNamespaceReconciler, client.Client) {
+	cheNs := cheCluster.Namespace
+
+	commonCR := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf(constants.UserCommonPermissionsTemplateName, cheNs),
+		},
+	}
+	devworkspaceCR := &rbacv1.ClusterRole{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf(constants.UserDevWorkspacePermissionsTemplateName, cheNs),
+		},
+	}
+
+	allObjs := append([]client.Object{cheCluster, commonCR, devworkspaceCR}, extraObjs...)
+
+	ctx := test.NewCtxBuilder().WithObjects(allObjs...).WithCheCluster(nil).Build()
+	cl := ctx.ClusterAPI.Client
+	scheme := ctx.ClusterAPI.Scheme
+
+	r := &CheUserNamespaceReconciler{
+		client:                 cl,
+		nonCachedClient:        cl,
+		clientWrapper:          k8sclient.NewK8sClient(cl, scheme),
+		nonCachedClientWrapper: k8sclient.NewK8sClient(cl, scheme),
+		scheme:                 scheme,
+		namespaceCache: &namespacecache.NamespaceCache{
+			Client:          cl,
+			KnownNamespaces: map[string]namespacecache.NamespaceInfo{},
+			Lock:            sync.Mutex{},
+		},
+	}
+	return r, cl
+}
+
+// newTestDeployContext creates a chetypes.DeployContext from the given CheCluster and client.
+func newTestDeployContext(cheCluster *chev2.CheCluster, cl client.Client, scheme *runtime.Scheme) *chetypes.DeployContext {
+	return &chetypes.DeployContext{
+		CheCluster: cheCluster,
+		ClusterAPI: chetypes.ClusterAPI{
+			Client:           cl,
+			NonCachingClient: cl,
+			Scheme:           scheme,
+		},
+	}
+}
+
+func TestReconcileUserClusterRoles_AuthorizedNoAdvancedAuth(t *testing.T) {
+	infrastructure.InitializeForTesting(infrastructure.Kubernetes)
+
+	cheCluster := &chev2.CheCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eclipse-che",
+			Namespace: "eclipse-che",
+		},
+		Spec: chev2.CheClusterSpec{
+			Networking: chev2.CheClusterSpecNetworking{
+				Domain: "root-domain",
+			},
+		},
+	}
+
+	r, cl := setupReconcileUserClusterRolesTest(cheCluster)
+	deployCtx := newTestDeployContext(cheCluster, cl, r.scheme)
+
+	ctx := context.TODO()
+	err := r.reconcileUserClusterRoles(ctx, deployCtx, "alice", "user-ns")
+	assert.NoError(t, err)
+
+	// Both default RoleBindings should be created in the user namespace.
+	rb1 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "alice-cheworkspaces", Namespace: "user-ns"}, rb1))
+	assert.Equal(t, fmt.Sprintf(constants.UserCommonPermissionsTemplateName, "eclipse-che"), rb1.RoleRef.Name)
+	assert.Equal(t, "alice", rb1.Subjects[0].Name)
+
+	rb2 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "alice-cheworkspaces-devworkspace", Namespace: "user-ns"}, rb2))
+	assert.Equal(t, fmt.Sprintf(constants.UserDevWorkspacePermissionsTemplateName, "eclipse-che"), rb2.RoleRef.Name)
+	assert.Equal(t, "alice", rb2.Subjects[0].Name)
+}
+
+func TestReconcileUserClusterRoles_ExtraClusterRoles(t *testing.T) {
+	infrastructure.InitializeForTesting(infrastructure.Kubernetes)
+
+	cheCluster := &chev2.CheCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eclipse-che",
+			Namespace: "eclipse-che",
+		},
+		Spec: chev2.CheClusterSpec{
+			Networking: chev2.CheClusterSpecNetworking{
+				Domain: "root-domain",
+			},
+			DevEnvironments: chev2.CheClusterDevEnvironments{
+				User: &chev2.UserConfiguration{
+					ClusterRoles: []string{"custom-role-a", "custom-role-b"},
+				},
+			},
+		},
+	}
+
+	r, cl := setupReconcileUserClusterRolesTest(cheCluster)
+	deployCtx := newTestDeployContext(cheCluster, cl, r.scheme)
+
+	ctx := context.TODO()
+	err := r.reconcileUserClusterRoles(ctx, deployCtx, "bob", "user-ns")
+	assert.NoError(t, err)
+
+	// Two default RoleBindings plus two extra ones.
+	rb1 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "bob-cheworkspaces", Namespace: "user-ns"}, rb1))
+
+	rb2 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "bob-cheworkspaces-devworkspace", Namespace: "user-ns"}, rb2))
+
+	rbExtra1 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "bob-custom-role-a", Namespace: "user-ns"}, rbExtra1))
+	assert.Equal(t, "custom-role-a", rbExtra1.RoleRef.Name)
+	assert.Equal(t, "bob", rbExtra1.Subjects[0].Name)
+
+	rbExtra2 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "bob-custom-role-b", Namespace: "user-ns"}, rbExtra2))
+	assert.Equal(t, "custom-role-b", rbExtra2.RoleRef.Name)
+	assert.Equal(t, "bob", rbExtra2.Subjects[0].Name)
+}
+
+func TestReconcileUserClusterRoles_DeniedUserDeletesRoleBindings(t *testing.T) {
+	infrastructure.InitializeForTesting(infrastructure.Kubernetes)
+
+	cheCluster := &chev2.CheCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eclipse-che",
+			Namespace: "eclipse-che",
+		},
+		Spec: chev2.CheClusterSpec{
+			Networking: chev2.CheClusterSpecNetworking{
+				Auth: chev2.Auth{
+					AdvancedAuthorization: &chev2.AdvancedAuthorization{
+						DenyUsers: []string{"mallory"},
+					},
+				},
+				Domain: "root-domain",
+			},
+		},
+	}
+
+	// Pre-create RoleBindings that should be cleaned up when the user is denied.
+	existingRB1 := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mallory-cheworkspaces",
+			Namespace: "user-ns",
+		},
+	}
+	existingRB2 := &rbacv1.RoleBinding{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "mallory-cheworkspaces-devworkspace",
+			Namespace: "user-ns",
+		},
+	}
+
+	r, cl := setupReconcileUserClusterRolesTest(cheCluster, existingRB1, existingRB2)
+	deployCtx := newTestDeployContext(cheCluster, cl, r.scheme)
+
+	ctx := context.TODO()
+	err := r.reconcileUserClusterRoles(ctx, deployCtx, "mallory", "user-ns")
+	assert.NoError(t, err)
+
+	// Both RoleBindings should have been deleted.
+	rb1 := &rbacv1.RoleBinding{}
+	err = cl.Get(ctx, types.NamespacedName{Name: "mallory-cheworkspaces", Namespace: "user-ns"}, rb1)
+	assert.Error(t, err, "expected RoleBinding to be deleted")
+
+	rb2 := &rbacv1.RoleBinding{}
+	err = cl.Get(ctx, types.NamespacedName{Name: "mallory-cheworkspaces-devworkspace", Namespace: "user-ns"}, rb2)
+	assert.Error(t, err, "expected RoleBinding to be deleted")
+}
+
+func TestReconcileUserClusterRoles_EmptyUsernameIsNoop(t *testing.T) {
+	infrastructure.InitializeForTesting(infrastructure.Kubernetes)
+
+	cheCluster := &chev2.CheCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eclipse-che",
+			Namespace: "eclipse-che",
+		},
+		Spec: chev2.CheClusterSpec{
+			Networking: chev2.CheClusterSpecNetworking{
+				Domain: "root-domain",
+			},
+		},
+	}
+
+	r, cl := setupReconcileUserClusterRolesTest(cheCluster)
+	deployCtx := newTestDeployContext(cheCluster, cl, r.scheme)
+
+	ctx := context.TODO()
+	err := r.reconcileUserClusterRoles(ctx, deployCtx, "", "user-ns")
+	assert.NoError(t, err)
+
+	// No RoleBindings should be created.
+	rbList := &rbacv1.RoleBindingList{}
+	assert.NoError(t, cl.List(ctx, rbList, client.InNamespace("user-ns")))
+	assert.Empty(t, rbList.Items, "expected no RoleBindings when username is empty")
+}
+
+func TestReconcileUserClusterRoles_Idempotent(t *testing.T) {
+	infrastructure.InitializeForTesting(infrastructure.Kubernetes)
+
+	cheCluster := &chev2.CheCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "eclipse-che",
+			Namespace: "eclipse-che",
+		},
+		Spec: chev2.CheClusterSpec{
+			Networking: chev2.CheClusterSpecNetworking{
+				Domain: "root-domain",
+			},
+		},
+	}
+
+	r, cl := setupReconcileUserClusterRolesTest(cheCluster)
+	deployCtx := newTestDeployContext(cheCluster, cl, r.scheme)
+
+	ctx := context.TODO()
+
+	// First reconcile.
+	err := r.reconcileUserClusterRoles(ctx, deployCtx, "alice", "user-ns")
+	assert.NoError(t, err)
+
+	// Second reconcile — must not error.
+	err = r.reconcileUserClusterRoles(ctx, deployCtx, "alice", "user-ns")
+	assert.NoError(t, err)
+
+	// RoleBindings should still be present and correct.
+	rb1 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "alice-cheworkspaces", Namespace: "user-ns"}, rb1))
+	assert.Equal(t, "alice", rb1.Subjects[0].Name)
+
+	rb2 := &rbacv1.RoleBinding{}
+	assert.NoError(t, cl.Get(ctx, types.NamespacedName{Name: "alice-cheworkspaces-devworkspace", Namespace: "user-ns"}, rb2))
+	assert.Equal(t, "alice", rb2.Subjects[0].Name)
 }
