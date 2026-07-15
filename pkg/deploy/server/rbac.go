@@ -12,6 +12,35 @@
 
 package server
 
+// HANDOFF-FOR-T3: preserved policy rules
+//
+// getUserCommonPolicies (formerly used for <ns>-cheworkspaces-clusterrole):
+//
+//   k8sPolicies:
+//     - APIGroups: [""]           Resources: ["pods/exec"]               Verbs: ["get", "create"]
+//     - APIGroups: [""]           Resources: ["pods/log"]                Verbs: ["get", "list", "watch"]
+//     - APIGroups: [""]           Resources: ["pods/portforward"]        Verbs: ["get", "list", "create"]
+//     - APIGroups: [""]           Resources: ["secrets"]                 Verbs: ["get", "list", "create", "update", "patch", "delete"]
+//     - APIGroups: [""]           Resources: ["persistentvolumeclaims"]  Verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+//     - APIGroups: [""]           Resources: ["pods"]                    Verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+//     - APIGroups: [""]           Resources: ["services"]                Verbs: ["get", "list", "create", "delete", "update", "patch"]
+//     - APIGroups: [""]           Resources: ["configmaps"]              Verbs: ["get", "list", "create", "update", "patch", "delete"]
+//     - APIGroups: ["apps"]       Resources: ["deployments"]             Verbs: ["get", "list", "watch", "create", "patch", "delete"]
+//     - APIGroups: ["apps"]       Resources: ["replicasets"]             Verbs: ["get", "list", "patch", "delete"]
+//     - APIGroups: ["networking.k8s.io"] Resources: ["ingresses"]        Verbs: ["get", "list", "watch", "create", "delete"]
+//     - APIGroups: ["metrics.k8s.io"]   Resources: ["pods", "nodes"]    Verbs: ["get", "list", "watch"]
+//     - APIGroups: [""]           Resources: ["namespaces"]              Verbs: ["get", "list"]
+//     - APIGroups: [""]           Resources: ["events"]                  Verbs: ["watch", "list"]
+//   openshiftPolicies (appended on OpenShift):
+//     - APIGroups: ["route.openshift.io"] Resources: ["routes"]          Verbs: ["get", "list", "create", "delete"]
+//     - APIGroups: ["project.openshift.io"] Resources: ["projects"]      Verbs: ["get"]
+//
+// getUserDevWorkspacePolicies (formerly used for <ns>-cheworkspaces-devworkspace-clusterrole):
+//
+//   k8sPolicies:
+//     - APIGroups: ["workspace.devfile.io"] Resources: ["devworkspaces", "devworkspacetemplates"]
+//       Verbs: ["get", "create", "delete", "list", "update", "patch", "watch"]
+
 import (
 	"fmt"
 	"strings"
@@ -28,18 +57,32 @@ import (
 )
 
 const (
-	userCommonPermissionsTemplateName       = "%s-cheworkspaces-clusterrole"
-	userDevWorkspacePermissionsTemplateName = "%s-cheworkspaces-devworkspace-clusterrole"
+	// userCommonPermissionsTemplateName and userDevWorkspacePermissionsTemplateName are kept as
+	// package-level aliases of the exported constants so that existing test code in this package
+	// continues to compile. The authoritative definitions have been moved to the constants package
+	// so that T3 (pkg/deploy/rbac/) and T5 (controllers/usernamespace/) can also reference them.
+	userCommonPermissionsTemplateName       = constants.UserCommonPermissionsTemplateName
+	userDevWorkspacePermissionsTemplateName = constants.UserDevWorkspacePermissionsTemplateName
 	cheSASpecificPermissionsTemplateName    = "%s-cheworkspaces-namespaces-clusterrole"
 )
 
 // Create ClusterRole and ClusterRoleBinding for "che" service account.
 // che-server uses "che" service account for creation RBAC for a user in his namespace.
 func (s *CheServerReconciler) syncPermissions(ctx *chetypes.DeployContext) (bool, error) {
+	// Delete orphaned user-facing CRBs immediately on every reconcile so the che SA
+	// loses excess permissions right after upgrade (not only at CheCluster deletion).
+	orphanedCRBNames := []string{
+		fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace),
+		fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace),
+	}
+	for _, name := range orphanedCRBNames {
+		if done, err := deploy.Delete(ctx, types.NamespacedName{Name: name}, &rbacv1.ClusterRoleBinding{}); !done {
+			return false, err
+		}
+	}
+
 	policies := map[string][]rbacv1.PolicyRule{
-		fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace):       s.getUserCommonPolicies(),
-		fmt.Sprintf(cheSASpecificPermissionsTemplateName, ctx.CheCluster.Namespace):    s.getCheSASpecificPolicies(),
-		fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace): s.getUserDevWorkspacePolicies(),
+		fmt.Sprintf(cheSASpecificPermissionsTemplateName, ctx.CheCluster.Namespace): s.getCheSASpecificPolicies(),
 	}
 
 	for name, policy := range policies {
@@ -87,19 +130,31 @@ func (s *CheServerReconciler) syncPermissions(ctx *chetypes.DeployContext) (bool
 
 func (s *CheServerReconciler) deletePermissions(ctx *chetypes.DeployContext) bool {
 	names := []string{
-		fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace),
-		fmt.Sprintf(cheSASpecificPermissionsTemplateName, ctx.CheCluster.Namespace),
-		fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace),
+		cheSASpecificPermissionsTemplateName,
 	}
 
 	done := true
 
-	for _, name := range names {
+	for _, nameTemplate := range names {
+		name := fmt.Sprintf(nameTemplate, ctx.CheCluster.Namespace)
 		if _, err := deploy.Delete(ctx, types.NamespacedName{Name: name}, &rbacv1.ClusterRole{}); err != nil {
 			done = false
 			logrus.Errorf("Failed to delete ClusterRole '%s', cause: %v", name, err)
 		}
 
+		if _, err := deploy.Delete(ctx, types.NamespacedName{Name: name}, &rbacv1.ClusterRoleBinding{}); err != nil {
+			done = false
+			logrus.Errorf("Failed to delete ClusterRoleBinding '%s', cause: %v", name, err)
+		}
+	}
+
+	// Delete legacy user-facing CRBs (che-SA bindings) for upgrade compatibility.
+	// Old operator installations will have orphaned ClusterRoleBindings that must be cleaned up.
+	legacyCRBNames := []string{
+		fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace),
+		fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace),
+	}
+	for _, name := range legacyCRBNames {
 		if _, err := deploy.Delete(ctx, types.NamespacedName{Name: name}, &rbacv1.ClusterRoleBinding{}); err != nil {
 			done = false
 			logrus.Errorf("Failed to delete ClusterRoleBinding '%s', cause: %v", name, err)
@@ -124,18 +179,6 @@ func (s *CheServerReconciler) deletePermissions(ctx *chetypes.DeployContext) boo
 	}
 
 	return done
-}
-
-func (s *CheServerReconciler) getUserDevWorkspacePolicies() []rbacv1.PolicyRule {
-	k8sPolicies := []rbacv1.PolicyRule{
-		{
-			APIGroups: []string{"workspace.devfile.io"},
-			Resources: []string{"devworkspaces", "devworkspacetemplates"},
-			Verbs:     []string{"get", "create", "delete", "list", "update", "patch", "watch"},
-		},
-	}
-
-	return k8sPolicies
 }
 
 func (s *CheServerReconciler) getCheSASpecificPolicies() []rbacv1.PolicyRule {
@@ -196,101 +239,10 @@ func (s *CheServerReconciler) getCheSASpecificPolicies() []rbacv1.PolicyRule {
 	return k8sPolicies
 }
 
-func (s *CheServerReconciler) getUserCommonPolicies() []rbacv1.PolicyRule {
-	k8sPolicies := []rbacv1.PolicyRule{
-		{
-			APIGroups: []string{""},
-			Resources: []string{"pods/exec"},
-			Verbs:     []string{"get", "create"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"pods/log"},
-			Verbs:     []string{"get", "list", "watch"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"pods/portforward"},
-			Verbs:     []string{"get", "list", "create"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"secrets"},
-			Verbs:     []string{"get", "list", "create", "update", "patch", "delete"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"persistentvolumeclaims"},
-			Verbs:     []string{"get", "list", "watch", "create", "delete", "update", "patch"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"pods"},
-			Verbs:     []string{"get", "list", "watch", "create", "delete", "update", "patch"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"services"},
-			Verbs:     []string{"get", "list", "create", "delete", "update", "patch"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"configmaps"},
-			Verbs:     []string{"get", "list", "create", "update", "patch", "delete"},
-		},
-		{
-			APIGroups: []string{"apps"},
-			Resources: []string{"deployments"},
-			Verbs:     []string{"get", "list", "watch", "create", "patch", "delete"},
-		},
-		{
-			APIGroups: []string{"apps"},
-			Resources: []string{"replicasets"},
-			Verbs:     []string{"get", "list", "patch", "delete"},
-		},
-		{
-			APIGroups: []string{"networking.k8s.io"},
-			Resources: []string{"ingresses"},
-			Verbs:     []string{"get", "list", "watch", "create", "delete"},
-		},
-		{
-			APIGroups: []string{"metrics.k8s.io"},
-			Resources: []string{"pods", "nodes"},
-			Verbs:     []string{"get", "list", "watch"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"namespaces"},
-			Verbs:     []string{"get", "list"},
-		},
-		{
-			APIGroups: []string{""},
-			Resources: []string{"events"},
-			Verbs:     []string{"watch", "list"},
-		},
-	}
-	openshiftPolicies := []rbacv1.PolicyRule{
-		{
-			APIGroups: []string{"route.openshift.io"},
-			Resources: []string{"routes"},
-			Verbs:     []string{"get", "list", "create", "delete"},
-		},
-		{
-			APIGroups: []string{"project.openshift.io"},
-			Resources: []string{"projects"},
-			Verbs:     []string{"get"},
-		},
-	}
-
-	if infrastructure.IsOpenShift() {
-		return append(k8sPolicies, openshiftPolicies...)
-	}
-	return k8sPolicies
-}
-
+// getDefaultUserClusterRoles returns the list of default user-facing ClusterRoles.
+// NOTE: User-facing ClusterRoles have been removed from che-server RBAC management.
+// This function now returns an empty slice; user ClusterRole reconciliation has been
+// moved to pkg/deploy/rbac/ (T3).
 func (s *CheServerReconciler) getDefaultUserClusterRoles(ctx *chetypes.DeployContext) []string {
-	return []string{
-		fmt.Sprintf(userCommonPermissionsTemplateName, ctx.CheCluster.Namespace),
-		fmt.Sprintf(userDevWorkspacePermissionsTemplateName, ctx.CheCluster.Namespace),
-	}
+	return []string{}
 }
