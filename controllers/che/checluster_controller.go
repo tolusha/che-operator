@@ -128,6 +128,7 @@ func NewReconciler(
 	reconcilerManager.AddReconciler(dashboard.NewDashboardReconciler())
 	reconcilerManager.AddReconciler(gateway.NewGatewayReconciler())
 	reconcilerManager.AddReconciler(server.NewCheServerReconciler())
+	reconcilerManager.AddReconciler(rbac.NewUserClusterRolesReconciler())
 	reconcilerManager.AddReconciler(imagepuller.NewImagePuller())
 
 	if infrastructure.IsOpenShift() {
