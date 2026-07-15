@@ -277,6 +277,13 @@ func (r *CheUserNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
+	if info.Username != "" {
+		if err = r.reconcileUserClusterRoles(ctx, deployContext, info.Username, req.Name); err != nil {
+			logrus.Errorf("Failed to reconcile user ClusterRole bindings in namespace '%s': %v", req.Name, err)
+			return ctrl.Result{}, err
+		}
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -589,6 +596,103 @@ func (r *CheUserNamespaceReconciler) reconcileSCCPrivileges(
 		&k8sclient.SyncOptions{DiffOpts: diffs.RoleBinding},
 	)
 }
+
+func (r *CheUserNamespaceReconciler) reconcileUserClusterRoles(ctx context.Context, deployContext *chetypes.DeployContext, username string, targetNs string) error {
+	if username == "" {
+		return nil
+	}
+
+	cheNs := deployContext.CheCluster.Namespace
+
+	// Build the list of (clusterRoleName, roleBindingName) pairs to reconcile.
+	type roleEntry struct {
+		clusterRoleName string
+		roleBindingName string
+	}
+
+	entries := []roleEntry{
+		{
+			clusterRoleName: fmt.Sprintf(constants.UserCommonPermissionsTemplateName, cheNs),
+			roleBindingName: username + "-cheworkspaces",
+		},
+		{
+			clusterRoleName: fmt.Sprintf(constants.UserDevWorkspacePermissionsTemplateName, cheNs),
+			roleBindingName: username + "-cheworkspaces-devworkspace",
+		},
+	}
+
+	// Add any additional ClusterRoles from CheCluster.Spec.DevEnvironments.User.ClusterRoles.
+	if deployContext.CheCluster.Spec.DevEnvironments.User != nil {
+		for _, cr := range deployContext.CheCluster.Spec.DevEnvironments.User.ClusterRoles {
+			entries = append(entries, roleEntry{
+				clusterRoleName: cr,
+				roleBindingName: username + "-" + cr,
+			})
+		}
+	}
+
+	// Determine authorization.
+	var advAuth *chev2.AdvancedAuthorization
+	if deployContext.CheCluster.Spec.Networking.Auth.AdvancedAuthorization != nil {
+		advAuth = deployContext.CheCluster.Spec.Networking.Auth.AdvancedAuthorization
+	}
+
+	authorized, err := isUserAuthorized(ctx, deployContext.ClusterAPI.Client, advAuth, username)
+	if err != nil {
+		return err
+	}
+
+	if !authorized {
+		// Delete all RoleBindings for this user.
+		for _, entry := range entries {
+			if err := r.clientWrapper.DeleteByKeyIgnoreNotFound(
+				ctx,
+				types.NamespacedName{Name: entry.roleBindingName, Namespace: targetNs},
+				&rbacv1.RoleBinding{},
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
+	// Create or update RoleBindings.
+	for _, entry := range entries {
+		rb := &rbacv1.RoleBinding{
+			TypeMeta: metav1.TypeMeta{
+				Kind:       "RoleBinding",
+				APIVersion: rbacv1.SchemeGroupVersion.String(),
+			},
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      entry.roleBindingName,
+				Namespace: targetNs,
+				Labels:    map[string]string{constants.KubernetesPartOfLabelKey: constants.CheEclipseOrg},
+			},
+			RoleRef: rbacv1.RoleRef{
+				Name:     entry.clusterRoleName,
+				Kind:     "ClusterRole",
+				APIGroup: "rbac.authorization.k8s.io",
+			},
+			Subjects: []rbacv1.Subject{
+				{
+					Kind:     rbacv1.UserKind,
+					APIGroup: "rbac.authorization.k8s.io",
+					Name:     username,
+				},
+			},
+		}
+		if err := r.clientWrapper.Sync(
+			ctx,
+			rb,
+			&k8sclient.SyncOptions{DiffOpts: diffs.RoleBinding},
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 
 func prefixedName(name string) string {
 	return "che-" + name
