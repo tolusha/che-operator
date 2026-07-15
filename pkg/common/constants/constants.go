@@ -188,3 +188,10 @@ var (
 		"component": "che-gateway-config",
 	}
 )
+
+// RBAC template names for user-facing ClusterRoles (moved here from pkg/deploy/server
+// so they are accessible to T3 (pkg/deploy/rbac/) and T5 (controllers/usernamespace/)).
+const (
+	UserCommonPermissionsTemplateName       = "%s-cheworkspaces-clusterrole"
+	UserDevWorkspacePermissionsTemplateName = "%s-cheworkspaces-devworkspace-clusterrole"
+)
