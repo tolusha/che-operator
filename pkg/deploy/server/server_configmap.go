@@ -46,7 +46,6 @@ type CheConfigMap struct {
 	CheLogLevel                         string `json:"CHE_LOG_LEVEL"`
 	CheMetricsEnabled                   string `json:"CHE_METRICS_ENABLED"`
 	CheInfrastructure                   string `json:"CHE_INFRASTRUCTURE_ACTIVE"`
-	UserClusterRoles                    string `json:"CHE_INFRA_KUBERNETES_USER__CLUSTER__ROLES"`
 	NamespaceDefault                    string `json:"CHE_INFRA_KUBERNETES_NAMESPACE_DEFAULT"`
 	NamespaceCreationAllowed            string `json:"CHE_INFRA_KUBERNETES_NAMESPACE_CREATION__ALLOWED"`
 	Http2Disable                        string `json:"HTTP2_DISABLE"`
@@ -184,14 +183,6 @@ func (s *CheServerReconciler) getConfigMapData(ctx *chetypes.DeployContext) (che
 	// override envs by extra properties
 	maps.Copy(cheEnv, ctx.CheCluster.Spec.Components.CheServer.ExtraProperties)
 
-	// Updates `CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION__<...>`
-	if err := s.updateAdvancedAuthorizationEnv(ctx, cheEnv); err != nil {
-		return nil, err
-	}
-
-	// Updates `CHE_INFRA_KUBERNETES_USER__CLUSTER__ROLES`
-	s.updateUserClusterRoleEnv(ctx, cheEnv)
-
 	// Update `CHE_INTEGRATION_<...>_SERVER__ENDPOINTS`
 	if err := s.updateServerEndpointsEnv(ctx, cheEnv); err != nil {
 		return nil, err
@@ -202,74 +193,6 @@ func (s *CheServerReconciler) getConfigMapData(ctx *chetypes.DeployContext) (che
 	}
 
 	return cheEnv, nil
-}
-
-func (s *CheServerReconciler) updateAdvancedAuthorizationEnv(ctx *chetypes.DeployContext, cheEnv map[string]string) error {
-	if ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization != nil {
-		delimiter := cheEnv["CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION_DELIMITER"]
-		if delimiter == "" {
-			allFields := strings.Join(ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.AllowUsers, "") +
-				strings.Join(ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.DenyUsers, "") +
-				strings.Join(ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.AllowGroups, "") +
-				strings.Join(ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.DenyGroups, "")
-
-			delimiter = utils.FindAvailableDelimiter(allFields)
-		}
-
-		if delimiter == "" {
-			return fmt.Errorf("failed to find an available delimiter for advanced authorization values")
-		}
-
-		cheEnv["CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION_ALLOW__USERS"] = strings.Join(
-			ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.AllowUsers,
-			delimiter,
-		)
-		cheEnv["CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION_DENY__USERS"] = strings.Join(
-			ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.DenyUsers,
-			delimiter,
-		)
-		cheEnv["CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION_ALLOW__GROUPS"] = strings.Join(
-			ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.AllowGroups,
-			delimiter,
-		)
-		cheEnv["CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION_DENY__GROUPS"] = strings.Join(
-			ctx.CheCluster.Spec.Networking.Auth.AdvancedAuthorization.DenyGroups,
-			delimiter,
-		)
-
-		cheEnv["CHE_INFRA_KUBERNETES_ADVANCED__AUTHORIZATION_DELIMITER"] = delimiter
-	}
-
-	return nil
-}
-
-func (s *CheServerReconciler) updateUserClusterRoleEnv(ctx *chetypes.DeployContext, cheEnv map[string]string) {
-	userClusterRolesSet := map[string]bool{}
-
-	for _, role := range s.getDefaultUserClusterRoles(ctx) {
-		userClusterRolesSet[role] = true
-	}
-
-	for _, role := range strings.Split(cheEnv["CHE_INFRA_KUBERNETES_USER__CLUSTER__ROLES"], ",") {
-		role = strings.TrimSpace(role)
-		if role != "" {
-			userClusterRolesSet[role] = true
-		}
-	}
-
-	if ctx.CheCluster.Spec.DevEnvironments.User != nil {
-		for _, role := range ctx.CheCluster.Spec.DevEnvironments.User.ClusterRoles {
-			role = strings.TrimSpace(role)
-			if role != "" {
-				userClusterRolesSet[role] = true
-			}
-		}
-	}
-
-	userClusterRoles := slices.Collect(maps.Keys(userClusterRolesSet))
-	sort.Strings(userClusterRoles)
-
-	cheEnv["CHE_INFRA_KUBERNETES_USER__CLUSTER__ROLES"] = strings.Join(userClusterRoles, ",")
 }
 
 func (s *CheServerReconciler) updateServerEndpointsEnv(ctx *chetypes.DeployContext, cheEnv map[string]string) error {
