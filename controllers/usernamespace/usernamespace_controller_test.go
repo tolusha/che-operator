@@ -458,7 +458,7 @@ func TestWatchRulesForConfigMapsInSameNamespace(t *testing.T) {
 
 	ctx := context.TODO()
 
-	h := r.watchRulesForSecrets(ctx)
+	h := r.watchRulesForConfigMaps(ctx)
 	rlq := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
 	// Let's throw event to controller about new config map creation.
 	h.Create(context.TODO(), event.CreateEvent{Object: cm}, rlq)
