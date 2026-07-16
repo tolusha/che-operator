@@ -22,6 +22,7 @@ import (
 	"github.com/eclipse-che/che-operator/pkg/common/diffs"
 	k8sclient "github.com/eclipse-che/che-operator/pkg/common/k8s-client"
 	containercapabilties "github.com/eclipse-che/che-operator/pkg/deploy/container-capabilities"
+	rbac "github.com/eclipse-che/che-operator/pkg/deploy/rbac"
 	"k8s.io/utils/ptr"
 
 	"github.com/eclipse-che/che-operator/controllers/namespacecache"
@@ -61,12 +62,13 @@ const (
 )
 
 type CheUserNamespaceReconciler struct {
-	scheme                 *runtime.Scheme
-	client                 client.Client
-	nonCachedClient        client.Client
-	clientWrapper          *k8sclient.K8sClientWrapper
-	nonCachedClientWrapper *k8sclient.K8sClientWrapper
-	namespaceCache         *namespacecache.NamespaceCache
+	scheme                   *runtime.Scheme
+	client                   client.Client
+	nonCachedClient          client.Client
+	clientWrapper            *k8sclient.K8sClientWrapper
+	nonCachedClientWrapper   *k8sclient.K8sClientWrapper
+	namespaceCache           *namespacecache.NamespaceCache
+	userPermissionReconciler *rbac.UserPermissionReconciler
 }
 
 var _ reconcile.Reconciler = (*CheUserNamespaceReconciler)(nil)
@@ -75,15 +77,17 @@ func NewCheUserNamespaceReconciler(
 	client client.Client,
 	noncachedClient client.Client,
 	scheme *runtime.Scheme,
-	namespaceCache *namespacecache.NamespaceCache) *CheUserNamespaceReconciler {
+	namespaceCache *namespacecache.NamespaceCache,
+	userPermissionReconciler *rbac.UserPermissionReconciler) *CheUserNamespaceReconciler {
 
 	return &CheUserNamespaceReconciler{
-		scheme:                 scheme,
-		client:                 client,
-		nonCachedClient:        noncachedClient,
-		clientWrapper:          k8sclient.NewK8sClient(client, scheme),
-		nonCachedClientWrapper: k8sclient.NewK8sClient(noncachedClient, scheme),
-		namespaceCache:         namespaceCache,
+		scheme:                   scheme,
+		client:                   client,
+		nonCachedClient:          noncachedClient,
+		clientWrapper:            k8sclient.NewK8sClient(client, scheme),
+		nonCachedClientWrapper:   k8sclient.NewK8sClient(noncachedClient, scheme),
+		namespaceCache:           namespaceCache,
+		userPermissionReconciler: userPermissionReconciler,
 	}
 }
 
@@ -275,6 +279,13 @@ func (r *CheUserNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	); err != nil {
 		logrus.Errorf("Failed to reconcile the SCC privileges in namespace '%s': %v", req.Name, err)
 		return ctrl.Result{}, err
+	}
+
+	if r.userPermissionReconciler != nil {
+		if err = r.userPermissionReconciler.SyncPermissionsForNamespace(ctx, checluster, req.Name); err != nil {
+			logrus.Errorf("Failed to sync user permissions for namespace '%s': %v", req.Name, err)
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
