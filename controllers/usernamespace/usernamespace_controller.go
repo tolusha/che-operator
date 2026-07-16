@@ -281,9 +281,11 @@ func (r *CheUserNamespaceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return ctrl.Result{}, err
 	}
 
-	if err = r.userPermissionReconciler.SyncPermissionsForNamespace(ctx, checluster, req.Name); err != nil {
-		logrus.Errorf("Failed to sync user permissions for namespace '%s': %v", req.Name, err)
-		return ctrl.Result{}, err
+	if r.userPermissionReconciler != nil {
+		if err = r.userPermissionReconciler.SyncPermissionsForNamespace(ctx, checluster, req.Name); err != nil {
+			logrus.Errorf("Failed to sync user permissions for namespace '%s': %v", req.Name, err)
+			return ctrl.Result{}, err
+		}
 	}
 
 	return ctrl.Result{}, nil
