@@ -34,6 +34,7 @@ import (
 
 	"github.com/eclipse-che/che-operator/controllers/devworkspace/solver"
 	"github.com/eclipse-che/che-operator/controllers/usernamespace"
+	deploybac "github.com/eclipse-che/che-operator/pkg/deploy/rbac"
 
 	securityv1 "github.com/openshift/api/security/v1"
 
@@ -287,7 +288,9 @@ func main() {
 
 	namespacecache := namespacecache.NewNamespaceCache(nonCachingClient)
 
-	userNamespaceReconciler := usernamespace.NewCheUserNamespaceReconciler(mgr.GetClient(), nonCachingClient, mgr.GetScheme(), namespacecache)
+	groupResolver := deploybac.NewOpenShiftGroupResolver(mgr.GetClient())
+	userPermissionReconciler := deploybac.NewUserPermissionReconciler(mgr.GetClient(), mgr.GetScheme(), groupResolver)
+	userNamespaceReconciler := usernamespace.NewCheUserNamespaceReconciler(mgr.GetClient(), nonCachingClient, mgr.GetScheme(), namespacecache, userPermissionReconciler)
 	if err = userNamespaceReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to set up controller", "controller", "CheUserReconciler")
 		os.Exit(1)
