@@ -15,6 +15,7 @@ package rbac
 import (
 	"context"
 
+	"github.com/sirupsen/logrus"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -34,7 +35,10 @@ func NewOpenShiftGroupResolver(client client.Client) *OpenShiftGroupResolver {
 }
 
 // GetUserGroups returns the groups that the given user belongs to.
-// Implementation is deferred to T2; returns nil, nil as a stub.
+// WARNING: This is a stub — implementation is deferred to T2.
+// Callers will receive an empty group list; downstream authorization logic
+// must not rely on this method until the full implementation is in place.
 func (r *OpenShiftGroupResolver) GetUserGroups(ctx context.Context, username string) ([]string, error) {
+	logrus.Warnf("GetUserGroups is not yet implemented (stub); returning empty group list for user %q", username)
 	return nil, nil
 }
