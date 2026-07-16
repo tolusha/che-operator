@@ -15,7 +15,8 @@ package rbac
 import (
 	"context"
 
-	"github.com/sirupsen/logrus"
+	userv1 "github.com/openshift/api/user/v1"
+	"github.com/eclipse-che/che-operator/pkg/common/infrastructure"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -35,10 +36,31 @@ func NewOpenShiftGroupResolver(client client.Client) *OpenShiftGroupResolver {
 }
 
 // GetUserGroups returns the groups that the given user belongs to.
-// WARNING: This is a stub — implementation is deferred to T2.
-// Callers will receive an empty group list; downstream authorization logic
-// must not rely on this method until the full implementation is in place.
 func (r *OpenShiftGroupResolver) GetUserGroups(ctx context.Context, username string) ([]string, error) {
-	logrus.Warnf("GetUserGroups is not yet implemented (stub); returning empty group list for user %q", username)
-	return nil, nil
+	if !infrastructure.IsOpenShift() {
+		return nil, nil
+	}
+
+	if infrastructure.IsOpenShiftExternalAuth() {
+		// Group resolution is not supported in ExternalAuth mode. Only user-based allow/deny rules apply.
+		// Contact your OIDC provider to use groups-based access control.
+		return nil, nil
+	}
+
+	groupList := &userv1.GroupList{}
+	if err := r.client.List(ctx, groupList); err != nil {
+		return nil, err
+	}
+
+	var groups []string
+	for _, group := range groupList.Items {
+		for _, user := range group.Users {
+			if user == username {
+				groups = append(groups, group.Name)
+				break
+			}
+		}
+	}
+
+	return groups, nil
 }
